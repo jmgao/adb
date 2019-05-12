@@ -139,8 +139,38 @@ mod client {
   }
 
   async fn cmd_devices(server: SocketSpec, long_output: bool) -> Result<i32> {
-    let service = if long_output { "host:devices-l" } else { "host:devices" };
-    cmd_raw(server, DeviceCriteria::Any, service).await
+    let remote = adb::client::Remote::new(server);
+    let devices = remote.devices().await?;
+
+    println!("List of devices attached");
+    for device in devices {
+      if long_output {
+        let mut options = Vec::with_capacity(5);
+        if let Some(s) = device.device_path {
+          options.push(s);
+        }
+
+        if let Some(s) = device.product {
+          options.push(format!("product:{}", s));
+        }
+
+        if let Some(s) = device.model {
+          options.push(format!("model:{}", s));
+        }
+
+        if let Some(s) = device.device {
+          options.push(format!("device:{}", s));
+        }
+
+        options.push(format!("transport_id:{}", device.id.0));
+        println!("{: <22} {} {}", device.serial, device.transport_type, options.join(" "));
+      } else {
+        println!("{}\t{}", device.serial, device.transport_type);
+      }
+    }
+    println!();
+
+    Ok(0)
   }
 
   async fn cmd_raw(server: SocketSpec, device_criteria: DeviceCriteria, service: &str) -> Result<i32> {

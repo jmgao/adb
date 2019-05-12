@@ -2,10 +2,12 @@
 
 use byteorder::{ByteOrder, LittleEndian};
 use futures::io::{AsyncReadExt, AsyncWriteExt};
+use regex::Regex;
 
 use crate as adb;
 use crate::core::{Socket, SocketSpec};
-use crate::host::{DeviceCriteria, TransportId};
+use crate::host::{DeviceCriteria, DeviceDescription, DeviceType, TransportId, TransportType};
+use crate::util::{ConsumePrefix, SplitOnce};
 
 /// A pointer to the location of an adb server.
 pub struct Remote {
@@ -120,11 +122,104 @@ impl Remote {
   pub async fn version(&self) -> adb::Result<u32> {
     let mut channel = self.open_channel("host:version").await?;
     let version = read_hex_length_prefixed(&mut channel).await?;
-    let version_str =
-      std::str::from_utf8(&version).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-    let version =
-      u32::from_str_radix(version_str, 16).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+    let version_str = std::str::from_utf8(&version)
+      .map_err(|_| adb::Error::UnexpectedData("version service returned invalid UTF-8".into()))?;
+    let version = u32::from_str_radix(version_str, 16)
+      .map_err(|_| adb::Error::UnexpectedData(format!("invalid version received '{}'", version_str)))?;
     Ok(version)
+  }
+
+  pub async fn devices(&self) -> adb::Result<Vec<DeviceDescription>> {
+    let mut channel = self.open_channel("host:devices-l").await?;
+    let devices = read_hex_length_prefixed(&mut channel).await?;
+    let devices_str = String::from_utf8_lossy(&devices);
+
+    let mut result = Vec::new();
+    // TODO: Use an actual protocol instead of parsing user-readable string output.
+    for line in devices_str.split('\n') {
+      if line.is_empty() {
+        continue;
+      }
+
+      let (serial, middle) = line
+        .split_once(" ")
+        .ok_or_else(|| adb::Error::UnexpectedData(format!("invalid device line: '{}'", line)))?;
+
+      let (transport_id_str, middle) = middle
+        .rsplit_once(" transport_id:")
+        .ok_or_else(|| adb::Error::UnexpectedData(format!("transport_id missing in device line: '{}'", line)))?;
+
+      let transport_id = TransportId(
+        transport_id_str
+          .parse()
+          .map_err(|_| adb::Error::UnexpectedData(format!("invalid transport id in device line: '{}'", line)))?,
+      );
+
+      // The easy part is done. Now for some especially horrible string parsing:
+      // First, trim the alignment spaces.
+      let middle = middle.trim_start();
+
+      // Next, parse the transport type.
+      // This is especially horrible, because it can be the following text:
+      //   "no permissions; see [http://developer.android.com/tools/device.html]"
+      // Thankfully, we can just check for "no permissions" and stop there, because there won't be any additional info.
+      let (transport_type, middle) = if middle.starts_with("offline") {
+        (TransportType::Offline, "")
+      } else if middle.starts_with("no permissions") {
+        (TransportType::NoPermissions, "")
+      } else if middle.starts_with("unauthorized") {
+        (TransportType::Unauthorized, "")
+      } else if middle.starts_with("authorizing") {
+        (TransportType::Authorizing, "")
+      } else if middle.starts_with("connecting") {
+        (TransportType::Connecting, "")
+      } else {
+        // We are presumably connected. Figure out what our DeviceType is.
+        let (device_type, middle) = if let Some(s) = middle.consume_prefix("bootloader ") {
+          (DeviceType::Bootloader, s)
+        } else if let Some(s) = middle.consume_prefix("device ") {
+          (DeviceType::Device, s)
+        } else if let Some(s) = middle.consume_prefix("host ") {
+          (DeviceType::Host, s)
+        } else if let Some(s) = middle.consume_prefix("recovery ") {
+          (DeviceType::Recovery, s)
+        } else if let Some(s) = middle.consume_prefix("rescue ") {
+          (DeviceType::Rescue, s)
+        } else if let Some(s) = middle.consume_prefix("sideload ") {
+          (DeviceType::Sideload, s)
+        } else {
+          return Err(adb::Error::UnexpectedData(format!(
+            "failed to parse device type from device line '{}'",
+            line
+          )));
+        };
+
+        (TransportType::Online(device_type), middle)
+      };
+
+      // The rest is relatively easy.
+      // The first element might be a device path, after which we might have product, model, and device.
+      let captures = if middle.is_empty() {
+        None
+      } else {
+        let re = Regex::new(
+          r"(?P<device_path>\S+)(?: product:(?P<product>\S+))?(?: model:(?P<model>\S+))?(?: device:(?P<device>\S+))?",
+        )
+        .unwrap();
+        re.captures(middle)
+      };
+
+      result.push(DeviceDescription {
+        serial: serial.into(),
+        id: transport_id,
+        transport_type,
+        device_path: captures.as_ref().and_then(|c| c.name("device_path").map(|s| s.as_str().into())),
+        product: captures.as_ref().and_then(|c| c.name("product").map(|s| s.as_str().into())),
+        model: captures.as_ref().and_then(|c| c.name("model").map(|s| s.as_str().into())),
+        device: captures.as_ref().and_then(|c| c.name("device").map(|s| s.as_str().into())),
+      })
+    }
+    Ok(result)
   }
 }
 

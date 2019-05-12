@@ -20,5 +20,6 @@ path = "src/binary/main.rs"
 futures-preview = "= 0.3.0-alpha.15"
 romio = "0.3.0-alpha.6"
 byteorder = "1"
+regex = "1"
 
 clap = { version = "2.33.0", optional = true }
