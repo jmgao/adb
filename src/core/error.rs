@@ -1,11 +1,22 @@
 /// Error type returned by library functions.
 #[derive(Debug)]
 pub enum Error {
+  /// Received unexpected data of some sort.
   UnexpectedData(String),
+
+  /// Failed to connect to a service with a reason.
   ServiceError(String),
+
+  /// SocketSpec failed to parse.
   SocketSpecInvalid,
+
+  /// Attempted to connect to a tcp or vsock SocketSpec that didn't have a host.
   SocketSpecMissingHost,
+
+  /// Attempted to use a SocketSpec that is unavailable on the current platform.
   SocketSpecUnsupportedType,
+
+  /// An I/O error occurred.
   IoError(std::io::Error),
 }
 
