@@ -87,8 +87,9 @@ mod client {
         .parse()
         .unwrap_or_else(|_| fatal!("failed to parse transport id '{}'", id_str));
       DeviceCriteria::TransportId(TransportId(id))
+    } else if let Ok(serial) = std::env::var("ADB_SERIAL") {
+      DeviceCriteria::Serial(serial)
     } else {
-      // TODO: $ADB_SERIAL
       DeviceCriteria::Any
     };
 
