@@ -15,6 +15,35 @@ impl<T: AsRef<str>> ConsumePrefix for T {
   }
 }
 
+/// Extension trait to add helpers to split a string once.
+pub(crate) trait SplitOnce {
+  // TODO: Pattern instead of &str?
+  fn split_once(&self, pattern: &str) -> Option<(&str, &str)>;
+  fn rsplit_once(&self, pattern: &str) -> Option<(&str, &str)>;
+}
+
+impl<T: AsRef<str>> SplitOnce for T {
+  fn split_once(&self, pattern: &str) -> Option<(&str, &str)> {
+    let mut s = self.as_ref().splitn(2, pattern);
+    let first = s.next().unwrap();
+    if let Some(second) = s.next() {
+      Some((first, second))
+    } else {
+      None
+    }
+  }
+
+  fn rsplit_once(&self, pattern: &str) -> Option<(&str, &str)> {
+    let mut s = self.as_ref().rsplitn(2, pattern);
+    let first = s.next().unwrap();
+    if let Some(second) = s.next() {
+      Some((first, second))
+    } else {
+      None
+    }
+  }
+}
+
 #[cfg(test)]
 mod test {
   #[test]
@@ -24,5 +53,21 @@ mod test {
     assert_eq!("foobar".consume_prefix("foobar"), Some(""));
     assert_eq!("foobar".consume_prefix("foo"), Some("bar"));
     assert_eq!("foobar".consume_prefix(""), Some("foobar"));
+  }
+
+  #[test]
+  fn split_once() {
+    use super::SplitOnce;
+    assert_eq!("foo,bar,baz".split_once("foo,bar,baz"), Some(("", "")));
+    assert_eq!("foo,bar,baz".split_once(","), Some(("foo", "bar,baz")));
+    assert_eq!("foo,bar,baz".split_once("!"), None);
+  }
+
+  #[test]
+  fn rsplit_once() {
+    use super::SplitOnce;
+    assert_eq!("foo,bar,baz".rsplit_once("foo,bar,baz"), Some(("", "")));
+    assert_eq!("foo,bar,baz".rsplit_once(","), Some(("baz", "foo,bar")));
+    assert_eq!("foo,bar,baz".rsplit_once("!"), None);
   }
 }
