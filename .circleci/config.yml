@@ -1,0 +1,68 @@
+version: 2
+jobs:
+  build-linux:
+    docker:
+      - image: jmgao/ubuntu-cosmic-mingw-w64-rust:latest
+    steps:
+      - checkout
+      - run:
+          name: Switch to nightly
+          command: rustup default nightly-2019-05-10
+      - run:
+          name: Build
+          command: cargo build --release
+      - run:
+          name: Test
+          command: cargo test
+      - run:
+          name: Copy binaries to workspace
+          command: mkdir -p /workspace/linux && cp target/release/adb /workspace/linux
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - linux
+  build-win64:
+    docker:
+      - image: jmgao/ubuntu-cosmic-mingw-w64-rust:latest
+    steps:
+      - checkout
+      - run:
+          name: Switch to nightly
+          command: rustup default nightly-2019-05-10
+      - run:
+          name: Add target
+          command: rustup target add x86_64-pc-windows-gnu
+      - run:
+          name: Build
+          command: cargo build --release --target x86_64-pc-windows-gnu
+      - run:
+          name: Copy binaries to workspace
+          command: mkdir -p /workspace/win64 && cp target/x86_64-pc-windows-gnu/release/adb.exe /workspace/win64
+      - persist_to_workspace:
+          root: /workspace
+          paths:
+            - win64
+  package:
+    docker:
+      - image: circleci/buildpack-deps:bionic
+    steps:
+      - run: mkdir /tmp/adb
+      - attach_workspace:
+          at: /tmp/adb
+      - run:
+          name: Create ZIP archive
+          command: cd /tmp; zip -r -9 adb.zip adb && mv adb.zip /tmp/adb
+      - store_artifacts:
+          path: /tmp/adb
+          destination: adb/
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - build-linux
+      - build-win64
+      - package:
+          requires:
+            - build-linux
+            - build-win64
