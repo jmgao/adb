@@ -14,3 +14,15 @@ impl<T: AsRef<str>> ConsumePrefix for T {
     }
   }
 }
+
+#[cfg(test)]
+mod test {
+  #[test]
+  fn consume_prefix() {
+    use super::ConsumePrefix;
+    assert_eq!("foobar".consume_prefix("bar"), None);
+    assert_eq!("foobar".consume_prefix("foobar"), Some(""));
+    assert_eq!("foobar".consume_prefix("foo"), Some("bar"));
+    assert_eq!("foobar".consume_prefix(""), Some("foobar"));
+  }
+}
