@@ -132,7 +132,7 @@ impl TryFrom<&str> for SocketSpec {
           tail.split_at(colon)
         };
 
-        if !tail.starts_with(":") {
+        if !tail.starts_with(':') {
           return Err(adb::Error::SocketSpecInvalid);
         }
         let port = tail[1..].parse().map_err(|_err| adb::Error::SocketSpecInvalid)?;
