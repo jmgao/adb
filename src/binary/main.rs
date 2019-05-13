@@ -46,13 +46,14 @@ mod client {
       (version_message: "print version information")
 
       (@arg LISTEN_ALL: -a display_order(0) "listen on all network interfaces, not just localhost")
-      (@group device_selection =>
-        (@arg DEVICE_SELECT_USB: -d display_order(1) "use USB device (error if multiple available)")
-        (@arg DEVICE_SELECT_TCP: -e display_order(2) "use TCP/IP device (error if multiple available)")
-        (@arg DEVICE_SELECT_SERIAL: -s +takes_value value_names(&["SERIAL"]) display_order(3)
-                                    "use device with given serial (overrides $ANDROID_SERIAL)")
-        (@arg DEVICE_SELECT_TRANSPORT_ID: -t +takes_value value_names(&["ID"]) display_order(4)
-                                    "use device with given transport id")
+      (@arg DEVICE_SELECT_USB: -d display_order(1) "use USB device (error if multiple available)")
+      (@arg DEVICE_SELECT_TCP: -e display_order(2) "use TCP/IP device (error if multiple available)")
+      (@arg DEVICE_SELECT_SERIAL: -s +takes_value value_names(&["SERIAL"]) display_order(3)
+                                  "use device with given serial (overrides $ANDROID_SERIAL)")
+      (@arg DEVICE_SELECT_TRANSPORT_ID: -t
+        +takes_value value_names(&["ID"]) display_order(4)
+        overrides_with_all(&["DEVICE_SELECT_USB", "DEVICE_SELECT_TCP", "DEVICE_SELECT_SERIAL"])
+        "use device with given transport id"
       )
 
       (@arg HOST: -H +takes_value display_order(5) conflicts_with("SPEC") "hostname of adb server")
