@@ -7,6 +7,9 @@ pub enum Error {
   /// Failed to connect to a service with a reason.
   ServiceError(String),
 
+  /// Attempted an operation that should be supported, but isn't implemented yet.
+  UnimplementedOperation(String),
+
   /// SocketSpec failed to parse.
   SocketSpecInvalid,
 

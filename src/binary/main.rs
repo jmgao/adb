@@ -28,6 +28,7 @@ mod client {
 
   use futures::executor::{self, ThreadPool};
   use futures::future;
+  use futures::future::Either;
   use futures::io::{AsyncReadExt, AsyncWriteExt};
   use futures::task::SpawnExt;
 
@@ -67,6 +68,16 @@ mod client {
       (@subcommand devices =>
         (about: "display connected devices")
         (@arg LONG: -l "long output")
+      )
+
+      (@subcommand shell =>
+        (about: "run a remote shell command (interactive shell if no command given)")
+        (@arg ESCAPE_CHAR: -e +takes_value "choose escape character, or \"none\"; default '~'")
+        (@arg NO_STDIN: -n "don't read from stdin")
+        (@arg DISABLE_PTY: -T "disable PTY allocation")
+        (@arg FORCE_PTY: -t +multiple overrides_with("DISABLE_PTY") "enable PTY allocation (multiple to force)")
+        (@arg RAW: -x "disable remote exit codes and stdout/stderr separation")
+        (@arg COMMAND: ... "command to run")
       )
 
       (@subcommand raw =>
@@ -118,6 +129,36 @@ mod client {
             let service = submatches.value_of("SERVICE").unwrap();
             let raw_terminal = submatches.is_present("RAW_TERMINAL");
             cmd_raw(server_address, criteria, service, raw_terminal).await
+          }
+
+          ("shell", Some(submatches)) => {
+            if let Some(_escape_char) = submatches.value_of("ESCAPE_CHAR") {
+              fatal!("shell -e unimplemented");
+            }
+
+            if submatches.is_present("NO_STDIN") {
+              fatal!("shell -n unimplemented");
+            }
+
+            let raw = submatches.is_present("RAW");
+            let command = submatches.values_of("COMMAND").map(|cmd| cmd.collect());
+
+            let tty = if submatches.is_present("DISABLE_PTY") {
+              false
+            } else {
+              let occurences = submatches.occurrences_of("FORCE_PTY");
+              if occurences > 1 {
+                true
+              } else if occurences == 1 {
+                // TODO: Check isatty.
+                eprintln!("warning: forcing tty allocation without checking isatty");
+                true
+              } else {
+                !command.is_some()
+              }
+            };
+
+            cmd_shell(server_address, criteria, command, tty, raw).await
           }
 
           (cmd, None) => fatal!("mismatched command {}", cmd),
@@ -182,7 +223,7 @@ mod client {
   }
 
   #[cfg(not(windows))]
-  fn scoped_raw_terminal(enable: bool) -> Option<termion::raw::RawTerminal> {
+  fn scoped_raw_terminal(enable: bool) -> Option<termion::raw::RawTerminal<std::io::Stdout>> {
     if enable {
       // FIXME: Raw is not quite what we want: it turns off \n -> \r\n processing.
       use termion::raw::IntoRawMode;
@@ -237,5 +278,87 @@ mod client {
     future::select(read, write).await;
     drop(raw_terminal);
     Ok(0)
+  }
+
+  async fn cmd_shell(
+    server: SocketSpec,
+    device_criteria: DeviceCriteria,
+    command: Option<Vec<&str>>,
+    tty: bool,
+    raw: bool,
+  ) -> Result<i32> {
+    use adb::client::shell::*;
+
+    let mut pool = ThreadPool::new()?;
+    let remote = adb::client::Remote::new(server);
+
+    let command = command.map(|vec| vec.iter().map(|s| s.to_string()).collect());
+    let mut shell_builder = Shell::builder();
+    let shell = shell_builder
+      .command(command)
+      .shell_protocol(!raw)
+      .term(std::env::var("TERM").ok())
+      .tty(tty)
+      .connect(remote, device_criteria)
+      .await?;
+
+    let raw_terminal = scoped_raw_terminal(tty);
+    let (mut read, mut write) = shell.split();
+
+    let reader = pool
+      .spawn_with_handle(async move {
+        let mut stdout = futures::io::AllowStdIo::new(std::io::stdout());
+        let mut stderr = futures::io::AllowStdIo::new(std::io::stderr());
+        loop {
+          match read.read().await {
+            Ok(event) => match event {
+              ShellOutput::Stdout(data) => {
+                let _ = stdout.write_all(&data).await;
+                let _ = stdout.flush().await;
+              }
+
+              ShellOutput::Stderr(data) => {
+                let _ = stderr.write_all(&data).await;
+                let _ = stderr.flush().await;
+              }
+
+              ShellOutput::Exit(exit_code) => return Ok(exit_code),
+            },
+
+            Err(err) => {
+              return Err(err);
+            }
+          };
+        }
+      })
+      .unwrap();
+
+    let writer = pool
+      .spawn_with_handle(async move {
+        let mut stdin = futures::io::AllowStdIo::new(std::io::stdin());
+        let mut buf = [0u8; 2048];
+        loop {
+          let event = match stdin.read(&mut buf).await {
+            Ok(0) => ShellInput::CloseStdin,
+            Ok(len) => ShellInput::Stdin(buf[..len].to_vec()),
+            Err(err) => return adb::Error::IoError(err),
+          };
+
+          if let Err(err) = write.write(event).await {
+            return err;
+          }
+        }
+      })
+      .unwrap();
+
+    let rc = match future::select(reader, writer).await {
+      Either::Left((Ok(rc), _)) => rc,
+      Either::Left((Err(err), _)) | Either::Right((err, _)) => {
+        eprintln!("fatal: failed to write: {:?}", err);
+        1
+      }
+    };
+    drop(raw_terminal);
+    Ok(rc as i32)
   }
 }
