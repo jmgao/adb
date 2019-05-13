@@ -28,7 +28,7 @@ mod client {
 
   use futures::executor::{self, ThreadPool};
   use futures::future;
-  use futures::io::AsyncReadExt;
+  use futures::io::{AsyncReadExt, AsyncWriteExt};
   use futures::task::SpawnExt;
 
   pub(crate) fn main() -> adb::Result<()> {
@@ -189,7 +189,16 @@ mod client {
     let read = pool
       .spawn_with_handle(async move {
         let mut stdout = futures::io::AllowStdIo::new(std::io::stdout());
-        let _ = channel_read.copy_into(&mut stdout).await;
+        let mut buf = [0u8; 2048];
+        loop {
+          match channel_read.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(len) => {
+              let _ = stdout.write_all(&buf[..len]).await;
+              let _ = stdout.flush().await;
+            }
+          }
+        }
       })
       .unwrap();
 
