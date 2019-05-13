@@ -71,6 +71,7 @@ mod client {
 
       (@subcommand raw =>
         (about: "directly connect to a service")
+        (@arg RAW_TERMINAL: -r "switch the terminal to raw mode")
         (@arg SERVICE: +required "service to connect to")
         (@setting Hidden)
       )
@@ -115,7 +116,8 @@ mod client {
 
           ("raw", Some(submatches)) => {
             let service = submatches.value_of("SERVICE").unwrap();
-            cmd_raw(server_address, criteria, service).await
+            let raw_terminal = submatches.is_present("RAW_TERMINAL");
+            cmd_raw(server_address, criteria, service, raw_terminal).await
           }
 
           (cmd, None) => fatal!("mismatched command {}", cmd),
@@ -174,7 +176,28 @@ mod client {
     Ok(0)
   }
 
-  async fn cmd_raw(server: SocketSpec, device_criteria: DeviceCriteria, service: &str) -> Result<i32> {
+  #[cfg(windows)]
+  fn scoped_raw_terminal(_: bool) -> Option<()> {
+    None
+  }
+
+  #[cfg(not(windows))]
+  fn scoped_raw_terminal(enable: bool) -> Option<termion::raw::RawTerminal> {
+    if enable {
+      // FIXME: Raw is not quite what we want: it turns off \n -> \r\n processing.
+      use termion::raw::IntoRawMode;
+      Some(std::io::stdout().into_raw_mode().unwrap())
+    } else {
+      None
+    }
+  }
+
+  async fn cmd_raw(
+    server: SocketSpec,
+    device_criteria: DeviceCriteria,
+    service: &str,
+    raw_terminal: bool,
+  ) -> Result<i32> {
     let mut pool = ThreadPool::new()?;
     let remote = adb::client::Remote::new(server);
 
@@ -186,6 +209,8 @@ mod client {
     };
 
     let (mut channel_read, mut channel_write) = channel.split();
+
+    let raw_terminal = scoped_raw_terminal(raw_terminal);
     let read = pool
       .spawn_with_handle(async move {
         let mut stdout = futures::io::AllowStdIo::new(std::io::stdout());
@@ -210,6 +235,7 @@ mod client {
       .unwrap();
 
     future::select(read, write).await;
+    drop(raw_terminal);
     Ok(0)
   }
 }
