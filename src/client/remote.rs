@@ -211,10 +211,18 @@ impl Remote {
         serial: serial.into(),
         id: transport_id,
         transport_type,
-        device_path: captures.as_ref().and_then(|c| c.name("device_path").map(|s| s.as_str().into())),
-        product: captures.as_ref().and_then(|c| c.name("product").map(|s| s.as_str().into())),
-        model: captures.as_ref().and_then(|c| c.name("model").map(|s| s.as_str().into())),
-        device: captures.as_ref().and_then(|c| c.name("device").map(|s| s.as_str().into())),
+        device_path: captures
+          .as_ref()
+          .and_then(|c| c.name("device_path").map(|s| s.as_str().into())),
+        product: captures
+          .as_ref()
+          .and_then(|c| c.name("product").map(|s| s.as_str().into())),
+        model: captures
+          .as_ref()
+          .and_then(|c| c.name("model").map(|s| s.as_str().into())),
+        device: captures
+          .as_ref()
+          .and_then(|c| c.name("device").map(|s| s.as_str().into())),
       })
     }
     Ok(result)
