@@ -17,7 +17,7 @@ name = "adb"
 path = "src/binary/main.rs"
 
 [dependencies]
-futures-preview = "= 0.3.0-alpha.17"
+futures-preview = "= 0.3.0-alpha.19"
 romio = "0.3.0-alpha.8"
 
 byteorder = "1"
